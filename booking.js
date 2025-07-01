@@ -19,7 +19,8 @@ let pendingBookingFetches = new Set(); // Track which booking events we're fetch
 // Default relays - you can modify these
 const DEFAULT_RELAYS = [
     'wss://filter.nostrcal.com',
-    'wss://relay.nostrcal.com'
+    'wss://relay.nostrcal.com',
+    'wss://purplepag.es/'
 ];
 
 // Initialize nostr-login for booking page
@@ -384,6 +385,8 @@ function processAvailabilityTemplate(event) {
     const bufferAfter = event.tags.find(tag => tag[0] === 'buffer_after')?.[1] || 'PT0S';
     const minNotice = event.tags.find(tag => tag[0] === 'min_notice')?.[1] || 'PT0S';
     const maxAdvance = event.tags.find(tag => tag[0] === 'max_advance')?.[1] || 'P30D';
+    const location = event.tags.find(tag => tag[0] === 'location')?.[1] || 'Online Meeting';
+    const title = event.tags.find(tag => tag[0] === 'title')?.[1] || 'Meeting Booking';
     
     // Parse weekly availability from 'sch' tags
     const weeklyAvailability = {};
@@ -421,7 +424,8 @@ function processAvailabilityTemplate(event) {
         bufferAfter: bufferAfterMinutes + ' minutes',
         totalBuffer: totalBufferMinutes + ' minutes',
         minNotice: minNoticeMinutes + ' minutes',
-        maxAdvance: maxAdvanceDays ? maxAdvanceDays + ' days' : 'unlimited'
+        maxAdvance: maxAdvanceDays ? maxAdvanceDays + ' days' : 'unlimited',
+        location: location
     });
     
     availabilityData = {
@@ -437,20 +441,33 @@ function processAvailabilityTemplate(event) {
         maxAdvanceDays: maxAdvanceDays,
         zapAmount: amountSats,
         weeklyAvailability,
-        ownerPubkey
+        ownerPubkey,
+        location,
+        title,
+        description: event.content
     };
     
     // Update UI
-    document.getElementById('eventTitle').textContent = 'Meeting Booking';
+    document.getElementById('eventTitle').textContent = title;
     document.getElementById('eventDuration').textContent = `${durationMinutes} min`;
     document.getElementById('eventTimezone').textContent = timezone;
     document.getElementById('hostAvatar').textContent = ownerPubkey.slice(0, 2).toUpperCase();
+    
+    // Update description if available
+    const descriptionElement = document.getElementById('eventDescription');
+    if (descriptionElement && event.content) {
+        descriptionElement.textContent = event.content;
+        descriptionElement.style.display = 'block';
+    } else if (descriptionElement) {
+        descriptionElement.style.display = 'none';
+    }
     
     // Update event meta with buffer and max advance info
     const eventMeta = document.querySelector('.event-meta');
     if (eventMeta) {
         let metaHTML = `<span>⏱️ <span id="eventDuration">${durationMinutes} min</span></span>`;
         metaHTML += `<span>🌍 <span id="eventTimezone">${timezone}</span></span>`;
+        metaHTML += `<span>📍 ${location}</span>`;
         
         if (totalBufferMinutes > 0) {
             metaHTML += `<span>🛡️ ${bufferBeforeMinutes}/${bufferAfterMinutes} min buffer</span>`;
@@ -1369,7 +1386,7 @@ async function createBookingEvent() {
             ['summary', `Booking request from ${bookerPubkey.slice(0, 8)}...`],
             ['start_tzid', availabilityData.timezone],
             ['end_tzid', availabilityData.timezone],
-            ['location', availabilityData.location || 'TBD'],
+            ['location', availabilityData.location || 'Online Meeting'],
             
             // Participants (owner as attendee, booker as organizer)
             ['p', ownerPubkey, '', 'attendee'],

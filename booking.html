@@ -47,6 +47,7 @@
             <div class="avatar" id="hostAvatar" style="width: 60px; height: 60px; font-size: 1.5rem; background-color: rgba(255,255,255,0.2);">📅</div>
             <div>
               <h2 id="eventTitle" style="font-size: 1.5rem; margin-bottom: 0.5rem;">Loading...</h2>
+              <p id="eventDescription" style="margin-bottom: 0.5rem; opacity: 0.9;"></p>
               <div class="event-meta" style="color: rgba(255,255,255,0.9);">
                 <span>⏱️ <span id="eventDuration">30 min</span></span>
                 <span>🌍 <span id="eventTimezone">UTC</span></span>
@@ -97,8 +98,9 @@
   <!-- Load scripts -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
   <script src="https://unpkg.com/nostr-login@latest/dist/unpkg.js" 
-          data-perms="sign_event:31923"
+          data-perms="sign_event:1,sign_event:31923,nip04_encrypt,nip04_decrypt,nip44_encrypt,nip44_decrypt"
           data-methods="connect,extension"
+          data-bunkers="nsec.app,highlighter.com,nostrconnect.com"
           data-theme="dark"
           data-dark-mode="true"
           data-start-screen="welcome"

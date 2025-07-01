@@ -1,5 +1,6 @@
 // Global state
 let userPubkey = '';
+let userProfile = null; // Add profile storage
 let calendars = []; // 31924 calendar objects
 let currentCalendarId = 'cal-main'; // Track selected calendar
 let availabilityTemplates = []; // 31926 availability templates
@@ -9,7 +10,7 @@ let rsvpEvents = []; // 31925 RSVP lifecycle events
 let dateBasedEvents = []; // 31922 date-based calendar events
 let ownerEvents = []; // 31923 events created by the owner
 let currentPage = 'event-slots';
-let relays = ['wss://relay.nostrcal.com', 'wss://filter.nostrcal.com'];
+let relays = ['wss://relay.nostrcal.com', 'wss://filter.nostrcal.com', 'wss://purplepag.es/'];
 let relayConnections = new Map();
 let currentEditingTemplate = null;
 let modalStep = 1;
@@ -35,6 +36,12 @@ document.addEventListener('DOMContentLoaded', function() {
     document.addEventListener('nlAuth', async (e) => {
         console.log('Auth event received:', e.detail);
         
+        // Remove custom backdrop
+        const customBackdrop = document.getElementById('nostr-login-backdrop-custom');
+        if (customBackdrop) {
+            customBackdrop.remove();
+        }
+        
         if (e.detail.type === 'login' || e.detail.type === 'signup') {
             // Use the pubkey from the event if available
             await handleNostrLogin(e.detail.pubkey);
@@ -48,12 +55,39 @@ document.addEventListener('DOMContentLoaded', function() {
     if (connectBtn) {
         connectBtn.addEventListener('click', () => {
             console.log('Connect button clicked');
+            
+            // Create a custom backdrop to ensure full opacity
+            const backdrop = document.createElement('div');
+            backdrop.id = 'nostr-login-backdrop-custom';
+            backdrop.style.cssText = `
+                position: fixed;
+                top: 0;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                background-color: rgba(0, 0, 0, 0.95);
+                z-index: 9990;
+            `;
+            document.body.appendChild(backdrop);
+            
             // Dispatch the nlLaunch event to show nostr-login modal
             document.dispatchEvent(new CustomEvent('nlLaunch', { detail: 'welcome' }));
         });
     }
     
     console.log('Setup complete');
+    
+    // Listen for clicks on the document to detect modal close
+    document.addEventListener('click', (e) => {
+        // Check if nostr-login modal is closed
+        setTimeout(() => {
+            const nostrLoginModal = document.querySelector('.nl-modal, .nostr-login-modal, [class*="nostr-login"]');
+            const customBackdrop = document.getElementById('nostr-login-backdrop-custom');
+            if (!nostrLoginModal && customBackdrop) {
+                customBackdrop.remove();
+            }
+        }, 100);
+    });
 });
 
 // Handle successful nostr login
@@ -70,7 +104,10 @@ async function handleNostrLogin(pubkeyFromEvent) {
         }
         
         console.log('Connected with pubkey:', userPubkey);
-        document.getElementById('userPubkey').textContent = userPubkey.slice(0, 20) + '...';
+        
+        // Show truncated pubkey initially
+        const truncatedPubkey = userPubkey.slice(0, 8) + '...' + userPubkey.slice(-8);
+        document.getElementById('userPubkey').textContent = truncatedPubkey;
         
         // Hide homepage and show app
         document.getElementById('homepage').classList.add('hidden');
@@ -78,6 +115,7 @@ async function handleNostrLogin(pubkeyFromEvent) {
         
         // Connect to relays and load data
         await initializeRelays();
+        await loadUserProfile(); // Load user profile data
         await loadCalendars();
         
         // Wait a moment for calendars to load, then create default if needed
@@ -99,6 +137,7 @@ function handleNostrLogout() {
     
     // Reset state
     userPubkey = '';
+    userProfile = null;
     calendars = [];
     availabilityTemplates = [];
     bookingRequests = [];
@@ -121,6 +160,13 @@ function handleNostrLogout() {
     
     // Reset pubkey display
     document.getElementById('userPubkey').textContent = 'Loading...';
+    
+    // Reset avatar
+    const avatar = document.querySelector('.avatar');
+    if (avatar) {
+        avatar.innerHTML = '<span class="icon-user"></span>';
+        avatar.style.backgroundImage = '';
+    }
 }
 
 // Logout function
@@ -171,7 +217,10 @@ function handleRelayMessage(relayUrl, message) {
     if (type === 'EVENT') {
         const [subscriptionId, event] = data;
         
-        if (event.kind === 31924 && event.pubkey === userPubkey) {
+        if (event.kind === 0 && event.pubkey === userPubkey) {
+            // Process user profile metadata
+            processUserProfile(event);
+        } else if (event.kind === 31924 && event.pubkey === userPubkey) {
             // Process calendar definitions
             processCalendar(event);
         } else if (event.kind === 31926 && event.pubkey === userPubkey) {
@@ -230,6 +279,88 @@ async function loadCalendars() {
         
         updateCalendarSelector();
     }, 2000);
+}
+
+// Load user profile from relays
+async function loadUserProfile() {
+    // Query for user profile (kind 0)
+    const profileFilter = {
+        kinds: [0],
+        authors: [userPubkey]
+    };
+    
+    const subscriptionId = 'profile-' + Date.now();
+    const reqMessage = ['REQ', subscriptionId, profileFilter];
+    
+    console.log('Loading user profile with filter:', profileFilter);
+    
+    // Send to all connected relays
+    relayConnections.forEach((ws, relayUrl) => {
+        if (ws.readyState === WebSocket.OPEN) {
+            console.log(`Querying profile from ${relayUrl}`);
+            ws.send(JSON.stringify(reqMessage));
+        }
+    });
+}
+
+// Process user profile metadata (kind 0)
+function processUserProfile(event) {
+    try {
+        // Prevent duplicate processing
+        if (processedEvents.has(event.id)) {
+            console.log(`⚠️ Profile event ${event.id} already processed, skipping`);
+            return;
+        }
+        processedEvents.add(event.id);
+        
+        const profileData = JSON.parse(event.content);
+        console.log('Processing user profile:', profileData);
+        
+        // Update or set user profile
+        if (!userProfile || event.created_at > (userProfile.created_at || 0)) {
+            userProfile = {
+                ...profileData,
+                created_at: event.created_at
+            };
+            
+            updateProfileDisplay();
+        }
+    } catch (error) {
+        console.error('Error processing user profile:', error);
+    }
+}
+
+// Update profile display in the UI
+function updateProfileDisplay() {
+    if (!userProfile) return;
+    
+    // Update display name
+    const truncatedPubkey = userPubkey.slice(0, 8) + '...' + userPubkey.slice(-8);
+    const displayName = userProfile.display_name || userProfile.name || truncatedPubkey;
+    document.getElementById('userPubkey').textContent = displayName;
+    
+    // Update avatar
+    const avatar = document.querySelector('.avatar');
+    if (avatar && userProfile.picture) {
+        // Create image element
+        const img = document.createElement('img');
+        img.src = userProfile.picture;
+        img.alt = displayName;
+        img.style.width = '100%';
+        img.style.height = '100%';
+        img.style.objectFit = 'cover';
+        img.style.borderRadius = '50%';
+        
+        // Handle image loading errors
+        img.onerror = () => {
+            console.error('Failed to load profile picture:', userProfile.picture);
+            avatar.innerHTML = '<span class="icon-user"></span>';
+        };
+        
+        // Clear avatar and add image
+        avatar.innerHTML = '';
+        avatar.appendChild(img);
+    }
 }
 
 // Create default calendar if none exist
