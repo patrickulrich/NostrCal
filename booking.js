@@ -22,37 +22,15 @@ const DEFAULT_RELAYS = [
     'wss://relay.nostrcal.com'
 ];
 
-// Initialize nostr-login for booking page with proper loading check
+// Initialize nostr-login for booking page
 document.addEventListener('DOMContentLoaded', function() {
-    // Wait for nostr-login to be available
-    function initializeNostrLogin() {
-        if (typeof window.nostrLogin === 'undefined') {
-            // If nostr-login isn't loaded yet, wait 100ms and try again
-            setTimeout(initializeNostrLogin, 100);
-            return;
-        }
-        
-        try {
-            // Configure nostr-login for booking
-            window.nostrLogin.init({
-                methods: ['extension', 'readOnly', 'nip46', 'otp'],
-                theme: 'dark',
-                startScreen: 'login',
-                darkMode: true,
-                devOverride: false,
-                perms: 'sign_event:31923'
-            });
-            
-            console.log('nostr-login initialized successfully for booking page');
-        } catch (error) {
-            console.error('Error initializing nostr-login:', error);
-            // Retry once more after a longer delay
-            setTimeout(initializeNostrLogin, 1000);
-        }
-    }
+    console.log('DOM loaded, setting up nostr-login for booking page...');
     
-    // Start the initialization process
-    initializeNostrLogin();
+    // Listen for auth events
+    document.addEventListener('nlAuth', async (e) => {
+        console.log('Auth event received on booking page:', e.detail);
+        // Handle auth if needed for booking flow
+    });
     
     // Handle Enter key in naddr input
     const naddrInput = document.getElementById('naddrInput');
@@ -106,6 +84,8 @@ document.addEventListener('DOMContentLoaded', function() {
             loadAvailability();
         }, 500);
     }
+    
+    console.log('Booking page setup complete');
 });
 
 // Enhanced function to clear state when going back or loading new availability
@@ -1322,21 +1302,28 @@ async function confirmBooking() {
     }
     
     try {
-        // Check if user is authenticated with nostr-login
-        if (!window.nostrLogin.isAuthenticated()) {
+        // Check if window.nostr is available
+        if (!window.nostr) {
             showBookingStatus('Please connect with Nostr to make a booking.', 'error');
             
-            // Launch nostr-login
-            await window.nostrLogin.launch();
+            // Launch nostr-login modal
+            document.dispatchEvent(new CustomEvent('nlLaunch', { detail: 'welcome' }));
             
             // Wait for authentication
-            await new Promise((resolve) => {
-                const checkAuth = setInterval(() => {
-                    if (window.nostrLogin.isAuthenticated()) {
-                        clearInterval(checkAuth);
+            await new Promise((resolve, reject) => {
+                const timeout = setTimeout(() => {
+                    reject(new Error('Authentication timeout'));
+                }, 30000);
+                
+                const handleAuth = (e) => {
+                    if (e.detail.type === 'login' || e.detail.type === 'signup') {
+                        clearTimeout(timeout);
+                        document.removeEventListener('nlAuth', handleAuth);
                         resolve();
                     }
-                }, 100);
+                };
+                
+                document.addEventListener('nlAuth', handleAuth);
             });
         }
         

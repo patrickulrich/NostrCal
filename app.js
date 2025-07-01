@@ -27,56 +27,48 @@ let allCalendarEvents = [];
 const dayKeys = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA']; // Index matches JS getDay()
 const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
-// Initialize nostr-login with proper loading check
+// Initialize nostr-login event handling
 document.addEventListener('DOMContentLoaded', function() {
-    // Wait for nostr-login to be available
-    function initializeNostrLogin() {
-        if (typeof window.nostrLogin === 'undefined') {
-            // If nostr-login isn't loaded yet, wait 100ms and try again
-            setTimeout(initializeNostrLogin, 100);
-            return;
+    console.log('DOM loaded, setting up nostr-login...');
+    
+    // Listen for auth events
+    document.addEventListener('nlAuth', async (e) => {
+        console.log('Auth event received:', e.detail);
+        
+        if (e.detail.type === 'login' || e.detail.type === 'signup') {
+            // Use the pubkey from the event if available
+            await handleNostrLogin(e.detail.pubkey);
+        } else if (e.detail.type === 'logout') {
+            handleNostrLogout();
         }
-        
-        console.log('nostr-login library loaded successfully');
-        
-        // Set up the connect button to launch nostr-login
-        const connectBtn = document.getElementById('connectBtn');
-        if (connectBtn) {
-            connectBtn.addEventListener('click', async () => {
-                try {
-                    await window.nostrLogin.launch();
-                } catch (error) {
-                    console.error('Error launching nostr-login:', error);
-                }
-            });
-        }
-        
-        // Listen for authentication events
-        document.addEventListener('nlAuth', async (e) => {
-            console.log('nlAuth event received:', e.detail);
-            if (e.detail.type === 'login' || e.detail.type === 'signup') {
-                await handleNostrLogin();
-            } else if (e.detail.type === 'logout') {
-                handleNostrLogout();
-            }
+    });
+
+    // Set up connect button
+    const connectBtn = document.getElementById('connectBtn');
+    if (connectBtn) {
+        connectBtn.addEventListener('click', () => {
+            console.log('Connect button clicked');
+            // Dispatch the nlLaunch event to show nostr-login modal
+            document.dispatchEvent(new CustomEvent('nlLaunch', { detail: 'welcome' }));
         });
-        
-        // Check if already authenticated
-        if (window.nostrLogin && window.nostrLogin.isAuthenticated && window.nostrLogin.isAuthenticated()) {
-            console.log('User already authenticated');
-            handleNostrLogin();
-        }
     }
     
-    // Start the initialization process
-    initializeNostrLogin();
+    console.log('Setup complete');
 });
 
 // Handle successful nostr login
-async function handleNostrLogin() {
+async function handleNostrLogin(pubkeyFromEvent) {
     try {
-        // Get the public key using window.nostr
-        userPubkey = await window.nostr.getPublicKey();
+        // Get the public key - use the one from event if available, otherwise request it
+        if (pubkeyFromEvent) {
+            userPubkey = pubkeyFromEvent;
+            console.log('Using pubkey from auth event:', userPubkey);
+        } else {
+            // Fallback to requesting pubkey if not provided in event
+            userPubkey = await window.nostr.getPublicKey();
+            console.log('Requested pubkey from window.nostr:', userPubkey);
+        }
+        
         console.log('Connected with pubkey:', userPubkey);
         document.getElementById('userPubkey').textContent = userPubkey.slice(0, 20) + '...';
         
@@ -131,20 +123,11 @@ function handleNostrLogout() {
     document.getElementById('userPubkey').textContent = 'Loading...';
 }
 
-// Legacy connection function for backward compatibility
-async function connectNostr() {
-    // This is now handled by nostr-login's launch method
-    // The button click is handled in the DOMContentLoaded event
-}
-
 // Logout function
 function logout() {
-    if (window.nostrLogin && window.nostrLogin.logout) {
-        window.nostrLogin.logout();
-    } else {
-        // Fallback: dispatch logout event
-        document.dispatchEvent(new Event("nlLogout"));
-    }
+    console.log('Logout button clicked');
+    // Dispatch logout event
+    document.dispatchEvent(new Event('nlLogout'));
 }
 
 // Relay management
